@@ -6,9 +6,7 @@
 [![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white)](https://prometheus.io)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> Production-ready monitoring stack using Grafana, Prometheus, and Alertmanager. Deployed for healthcare infrastructure monitoring at MSF and Living Goods.
-
-![Dashboard Preview](./assets/dashboard-preview.png)
+> Production-ready monitoring stack using Grafana, Prometheus, and Alertmanager. Deployed for healthcare infrastructure monitoring.
 
 ## 🎯 Overview
 
@@ -140,13 +138,6 @@ Configured notification channels:
 │   └── config.yml             # Alert routing
 └── assets/                    # Screenshots and docs
 ```
-
-## 🏥 Real-World Usage
-
-This stack has been deployed in:
-- **Médecins Sans Frontières**: Monitoring e-health applications (DHIS2, CHT)
-- **Living Goods**: Community health worker platform monitoring
-- **Cyber Shujaa**: Cloud security monitoring lab
 
 ## 🛡️ Security Best Practices
 
@@ -364,7 +355,7 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
 
     'LICENSE': '''MIT License
 
-Copyright (c) 2025 Valentine Gumo
+Copyright (c) 2026 Valentine Gumo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
