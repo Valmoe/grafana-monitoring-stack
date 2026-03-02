@@ -1,89 +1,191 @@
-
-Grafana Monitoring Stack
+# Grafana Monitoring Stack
 
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://docker.com)
-[![Grafana](https://img.shields.io/badge/Grafana-F46800?style=flat-square&logo=grafana&logoColor=white)](https://grafana.com)
-[![Prometheus](https://img.shields.io/badge/Prometheus-E6522C?style=flat-square&logo=prometheus&logoColor=white)](https://prometheus.io)
+[![Grafana](https://img.shields.io/badge/Grafana-10.4.3-F46800?style=flat-square&logo=grafana&logoColor=white)](https://grafana.com)
+[![Prometheus](https://img.shields.io/badge/Prometheus-v2.45.0-E6522C?style=flat-square&logo=prometheus&logoColor=white)](https://prometheus.io)
+[![Alertmanager](https://img.shields.io/badge/Alertmanager-v0.27.0-E6522C?style=flat-square)](https://prometheus.io/docs/alerting/alertmanager/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-> Production-ready monitoring stack using Grafana, Prometheus, and Alertmanager. Deployed for healthcare infrastructure monitoring.
+> Production-ready self-hosted monitoring stack using Grafana, Prometheus, Alertmanager, and Node Exporter. Fully provisioned with dashboards, alert rules, and email notifications out of the box.
 
-## 🎯 Overview
+---
 
-This repository contains a complete monitoring solution designed for production environments, specifically tailored for digital health infrastructure. It includes pre-configured dashboards for monitoring:
-
-- Web application uptime and response times
-- Database performance metrics
-- Server resource utilization (CPU, Memory, Disk)
-- Custom application metrics
-- Alerting rules for critical incidents
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Web App       │────▶│  Prometheus     │────▶│   Grafana       │
-│   (Target)      │     │  (Metrics DB)   │     │   (Dashboards)  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                               │
-                               ▼
-                        ┌─────────────────┐
-                        │  Alertmanager   │
-                        │  (Notifications)│
-                        └─────────────────┘
+                    ┌─────────────────────────────────────────┐
+                    │         Docker Network: monitoring       │
+                    │                                         │
+  Host System       │  ┌──────────────┐    ┌───────────────┐ │
+  /proc /sys /  ────┼─▶│ node-exporter│    │  Prometheus   │ │
+                    │  │   :9100      │───▶│    :9090      │ │
+                    │  └──────────────┘    │               │ │
+                    │                      │ scrapes all 4 │ │
+                    │  ┌──────────────┐    │ targets every │ │
+                    │  │   Grafana    │◀───│    15s        │ │
+                    │  │    :3000     │    │               │ │
+                    │  └──────────────┘    │ evaluates     │ │
+                    │                      │ rules every   │ │
+                    │  ┌──────────────┐◀───│    15s        │ │
+                    │  │ Alertmanager │    └───────────────┘ │
+                    │  │    :9093     │                       │
+                    │  └──────┬───────┘                       │
+                    └─────────┼───────────────────────────────┘
+                              │ Gmail SMTP :587
+                    ┌─────────▼──────────────┐
+                    │  warning → team inbox  │
+                    │  critical → on-call    │
+                    └────────────────────────┘
 ```
 
-## 🚀 Quick Start
+All ports are bound to `127.0.0.1` (loopback only) — nothing is exposed to the public internet directly. Place a reverse proxy (nginx, Caddy) in front of Grafana for external access.
+
+---
+
+## What's Included
+
+### Services
+
+| Service | Image | Port | Purpose |
+|---------|-------|------|---------|
+| Prometheus | `prom/prometheus:v2.45.0` | 9090 | Metrics collection and storage |
+| Grafana | `grafana/grafana:10.4.3` | 3000 | Dashboards and visualisation |
+| Alertmanager | `prom/alertmanager:v0.27.0` | 9093 | Alert routing and email notifications |
+| Node Exporter | `prom/node-exporter:v1.6.0` | 9100 | Host system metrics |
+
+### Dashboards (auto-provisioned)
+
+| Dashboard | Panels | Coverage |
+|-----------|--------|----------|
+| Node Exporter — Host Metrics | 12 | CPU by mode, load vs cores, memory breakdown, disk space, disk I/O, network traffic, network errors |
+| Prometheus — Self Monitoring | 10 | Target health table, scrape duration, sample counts, rule evaluation, TSDB internals, ingestion rate |
+| Alertmanager — Alert Pipeline | 10 | Firing/pending alerts, severity breakdown, live alert table, notification pipeline, dispatcher health |
+
+### Alert Rules (10 rules across 2 severity tiers)
+
+| Alert | Threshold | Severity |
+|-------|-----------|----------|
+| HighCPUUsageWarning | > 80% for 5m | warning |
+| HighCPUUsageCritical | > 95% for 5m | critical |
+| HighMemoryUsageWarning | > 85% for 5m | warning |
+| HighMemoryUsageCritical | > 95% for 2m | critical |
+| DiskSpaceWarning | < 20% for 5m | warning |
+| DiskSpaceCritical | < 10% for 5m | critical |
+| DiskFillingUp | fills in < 4h | warning |
+| ServiceDown | up == 0 for 1m | critical |
+| HighLoadAverage | > 80% of cores for 5m | warning |
+| NetworkReceiveErrors | errors > 0 for 5m | warning |
+
+**Inhibition rules:** Critical suppresses its matching warning. `ServiceDown` suppresses all other alerts for that instance to prevent noise storms.
+
+---
+
+## Quick Start
 
 ### Prerequisites
+
 - Docker 20.10+
 - Docker Compose 2.0+
-- 4GB RAM minimum
+- 2GB RAM minimum
+- A Gmail account with [App Password](https://myaccount.google.com/apppasswords) enabled
 
-### Installation
+### 1. Clone
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/Valmoe/grafana-monitoring-stack.git
-   cd grafana-monitoring-stack
-   ```
+```bash
+git clone https://github.com/Valmoe/grafana-monitoring-stack.git
+cd grafana-monitoring-stack
+```
 
-2. **Configure environment variables**
-   ```bash
-   cp .env.example .env
-   # Edit .env with your settings
-   ```
+### 2. Configure environment
 
-3. **Deploy the stack**
-   ```bash
-   docker-compose up -d
-   ```
+```bash
+cp .env.example .env
+# Fill in your values — see .env.example for full documentation
+```
 
-4. **Access Grafana**
-   - URL: http://localhost:3000
-   - Default credentials: admin/admin
-   - Change password on first login
+The required variables are:
 
-## 📊 Included Dashboards
+```dotenv
+GRAFANA_ADMIN_PASSWORD=        # Strong random password
+GF_SERVER_DOMAIN=              # e.g. localhost (or grafana.example.com in production)
+GF_SERVER_ROOT_URL=            # e.g. http://localhost:3000
+SMTP_FROM=                     # Your Gmail address
+SMTP_USERNAME=                 # Your Gmail address
+SMTP_PASSWORD=                 # Gmail App Password (16 chars)
+ALERT_EMAIL_TO=                # Warning alert recipient
+ALERT_EMAIL_TO_CRITICAL=       # Critical alert recipient
+```
 
-### 1. Web Application Monitoring
-- **Purpose**: Monitor website uptime and performance
-- **Metrics**: Response time, status codes, throughput
-- **Alerts**: High response time, 5xx errors
+### 3. Render Alertmanager config
 
-### 2. Database Performance
-- **Purpose**: PostgreSQL/MySQL performance tracking
-- **Metrics**: Query duration, connections, slow queries
-- **Alerts**: High connection count, slow query detection
+Alertmanager reads a static config file. Run this once after filling in `.env`, and again any time `.env` changes:
 
-### 3. System Resources
-- **Purpose**: Server health monitoring
-- **Metrics**: CPU, Memory, Disk I/O, Network
-- **Alerts**: High resource utilization
+```bash
+# Fix line endings if on Windows/WSL first
+sed -i 's/\r//' .env
+sed -i 's/\r//' render-config.sh
 
-## 🔧 Configuration
+sh render-config.sh
+```
 
-### Adding New Targets
+### 4. Start the stack
+
+```bash
+docker compose up -d
+
+# Watch startup
+docker compose logs -f
+
+# Check all services are healthy
+docker compose ps
+```
+
+### 5. Access
+
+| Service | URL | Credentials |
+|---------|-----|-------------|
+| Grafana | http://localhost:3000 | admin / your `GRAFANA_ADMIN_PASSWORD` |
+| Prometheus | http://localhost:9090 | — |
+| Alertmanager | http://localhost:9093 | — |
+
+---
+
+## Repository Structure
+
+```
+.
+├── docker-compose.yml              # Orchestration — all 4 services
+├── render-config.sh                # Renders alertmanager config template
+├── .env.example                    # Environment variable reference (safe to commit)
+├── .env                            # Your real secrets (gitignored)
+├── .gitignore
+│
+├── prometheus/
+│   ├── prometheus.yml              # Scrape configs, Alertmanager connection
+│   └── rules/
+│       └── infrastructure.yml      # 10 alert rules
+│
+├── alertmanager/
+│   ├── config.yml.tmpl             # Alert routing + HTML email templates (template)
+│   └── config.yml                  # Rendered at runtime by render-config.sh (gitignored)
+│
+└── grafana/
+    ├── provisioning/
+    │   ├── datasources/
+    │   │   └── prometheus.yml      # Auto-wires Prometheus as default datasource
+    │   └── dashboards/
+    │       └── dashboards.yml      # Tells Grafana where to load dashboard JSONs
+    └── dashboards/
+        ├── node-exporter.json      # Host metrics dashboard
+        ├── prometheus.json         # Prometheus self-monitoring dashboard
+        └── alertmanager.json       # Alert pipeline dashboard
+```
+
+---
+
+## Configuration
+
+### Adding a new scrape target
 
 Edit `prometheus/prometheus.yml`:
 
@@ -91,286 +193,79 @@ Edit `prometheus/prometheus.yml`:
 scrape_configs:
   - job_name: 'my-application'
     static_configs:
-      - targets: ['app-host:8080']
+      - targets: ['app-hostname:8080']
+        labels:
+          service: 'my-application'
     metrics_path: '/metrics'
     scrape_interval: 15s
 ```
 
-### Custom Alert Rules
+Then reload Prometheus without restarting:
 
-Add rules to `prometheus/rules/custom.yml`:
+```bash
+curl -X POST http://localhost:9090/-/reload
+```
+
+### Adding a new alert rule
+
+Add a file to `prometheus/rules/` — it will be picked up automatically on next reload:
 
 ```yaml
 groups:
-  - name: custom_rules
+  - name: my-app
     rules:
       - alert: HighErrorRate
         expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.05
         for: 5m
         labels:
           severity: critical
+          team: ops
         annotations:
-          summary: "High error rate detected"
+          summary: "High error rate on {{ $labels.instance }}"
+          description: "5xx rate is {{ $value | printf \"%.2f\" }} req/s"
+          runbook_url: "https://example.com/runbooks/high-error-rate"
 ```
 
-## 🚨 Alerting Channels
+### Updating secrets
 
-Configured notification channels:
-- 📧 Email (SMTP)
-- 💬 Slack
-- 📱 PagerDuty
-- 🎫 ServiceNow
-
-## 📁 Repository Structure
-
+```bash
+# Edit .env, then re-render and restart alertmanager
+sh render-config.sh
+docker compose restart alertmanager
 ```
-.
-├── docker-compose.yml          # Main orchestration file
-├── .env.example               # Environment variables template
-├── grafana/
-│   ├── dashboards/            # JSON dashboard definitions
-│   ├── datasources/           # Data source configurations
-│   └── provisioning/          # Auto-provisioning configs
-├── prometheus/
-│   ├── prometheus.yml         # Main configuration
-│   └── rules/                 # Alert rules
-├── alertmanager/
-│   └── config.yml             # Alert routing
-└── assets/                    # Screenshots and docs
-```
-
-## 🛡️ Security Best Practices
-
-- ✅ Non-root container execution
-- ✅ Secrets management via environment variables
-- ✅ Network isolation with Docker networks
-- ✅ TLS/SSL for external endpoints
-- ✅ Regular base image updates
-
-## 📝 Lessons Learned
-
-Key insights from production deployments:
-
-1. **Retention Strategy**: 15-day local retention with S3 backup for compliance
-2. **High Availability**: Prometheus federation for multi-region setups
-3. **Alert Fatigue**: Implemented alert grouping and inhibition rules
-4. **Performance**: Recording rules for frequently queried metrics
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 📧 Contact
-
-Valentine Gumo - [gumovalentine@gmail.com](mailto:gumovalentine@gmail.com)
-
-Project Link: [https://github.com/Valmoe/grafana-monitoring-stack](https://github.com/Valmoe/grafana-monitoring-stack)
 
 ---
 
-⭐ Star this repository if you find it helpful!
-''',
+## Security
 
-    'docker-compose.yml': '''version: '3.8'
+- All ports bound to `127.0.0.1` — not exposed to public internet
+- All containers run as non-root users
+- `no-new-privileges` set on all services
+- Secrets managed via `.env` (gitignored) — no hardcoded credentials anywhere
+- `alertmanager/config.yml` (contains rendered SMTP password) is gitignored
+- Grafana sign-up disabled, cookie security enabled
+- Grafana analytics and telemetry reporting disabled
 
-services:
-  prometheus:
-    image: prom/prometheus:v2.45.0
-    container_name: prometheus
-    restart: unless-stopped
-    volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./prometheus/rules:/etc/prometheus/rules:ro
-      - prometheus_data:/prometheus
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=15d'
-      - '--web.enable-lifecycle'
-    ports:
-      - "9090:9090"
-    networks:
-      - monitoring
+---
 
-  grafana:
-    image: grafana/grafana:10.0.0
-    container_name: grafana
-    restart: unless-stopped
-    volumes:
-      - grafana_data:/var/lib/grafana
-      - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
-    ports:
-      - "3000:3000"
-    networks:
-      - monitoring
-    depends_on:
-      - prometheus
+## Production Deployment Notes
 
-  alertmanager:
-    image: prom/alertmanager:v0.25.0
-    container_name: alertmanager
-    restart: unless-stopped
-    volumes:
-      - ./alertmanager/config.yml:/etc/alertmanager/config.yml:ro
-      - alertmanager_data:/alertmanager
-    command:
-      - '--config.file=/etc/alertmanager/config.yml'
-      - '--storage.path=/alertmanager'
-    ports:
-      - "9093:9093"
-    networks:
-      - monitoring
+When moving from local to a real server:
 
-  node-exporter:
-    image: prom/node-exporter:v1.6.0
-    container_name: node-exporter
-    restart: unless-stopped
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - '--path.procfs=/host/proc'
-      - '--path.rootfs=/rootfs'
-      - '--path.sysfs=/host/sys'
-      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
-    ports:
-      - "9100:9100"
-    networks:
-      - monitoring
+1. Update `GF_SERVER_DOMAIN` and `GF_SERVER_ROOT_URL` in `.env` to your real domain
+2. Set `GF_SECURITY_COOKIE_SECURE=true` (already set) — requires HTTPS
+3. Put Grafana behind a reverse proxy (nginx/Caddy) with TLS — do not expose port 3000 directly
+4. Consider increasing `PROMETHEUS_RETENTION` (e.g. `30d` or `90d`)
+5. Set up volume backups — all persistent data lives in named Docker volumes
 
-volumes:
-  prometheus_data:
-  grafana_data:
-  alertmanager_data:
+---
 
-networks:
-  monitoring:
-    driver: bridge
-''',
+## License
 
-    'prometheus/prometheus.yml': '''global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+MIT License — see [LICENSE](LICENSE)
 
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-          - alertmanager:9093
+## Contact
 
-rule_files:
-  - "rules/*.yml"
+Valentine Gumo — [gumovalentine@gmail.com](mailto:gumovalentine@gmail.com)
 
-scrape_configs:
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['localhost:9090']
-
-  - job_name: 'node-exporter'
-    static_configs:
-      - targets: ['node-exporter:9100']
-
-  - job_name: 'grafana'
-    static_configs:
-      - targets: ['grafana:3000']
-
-  # Example: Web application monitoring
-  # - job_name: 'web-app'
-  #   static_configs:
-  #     - targets: ['web-app:8080']
-  #   metrics_path: '/actuator/prometheus'
-''',
-
-    'prometheus/rules/alerts.yml': '''groups:
-  - name: infrastructure
-    rules:
-      - alert: HighCPUUsage
-        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High CPU usage detected"
-          description: "CPU usage is above 80% for more than 5 minutes"
-
-      - alert: HighMemoryUsage
-        expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "High memory usage detected"
-          description: "Memory usage is above 85% for more than 5 minutes"
-
-      - alert: DiskSpaceLow
-        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 10
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Low disk space"
-          description: "Disk space is below 10%"
-
-      - alert: ServiceDown
-        expr: up == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Service is down"
-          description: "{{ $labels.job }} service is down"
-''',
-
-    '.env.example': '''# Grafana Configuration
-GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=changeme
-GRAFANA_ROOT_URL=http://localhost:3000
-
-# Alertmanager Configuration
-SMTP_FROM=alerts@example.com
-SMTP_SMARTHOST=smtp.gmail.com:587
-SMTP_AUTH_USERNAME=your-email@gmail.com
-SMTP_AUTH_PASSWORD=your-app-password
-
-# Slack Integration
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK
-''',
-
-    'LICENSE': '''MIT License
-
-Copyright (c) 2026 Valentine Gumo
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Project: [https://github.com/Valmoe/grafana-monitoring-stack](https://github.com/Valmoe/grafana-monitoring-stack)
