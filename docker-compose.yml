@@ -129,18 +129,12 @@ services:
     restart: unless-stopped
     user: "65534:65534"  # Run as nobody:nobody (non-root)
     volumes:
-      # config.yml.tmpl is your template; the entrypoint renders it to config.yml at startup
-      - ./alertmanager/config.yml.tmpl:/etc/alertmanager/config.yml.tmpl:ro
+      
+      - ./alertmanager/config.yml:/etc/alertmanager/config.yml:ro
       - alertmanager_data:/alertmanager
-    # Use a shell entrypoint to substitute env vars into the config template,
-    # then start alertmanager with the rendered config.
-    entrypoint: ["/bin/sh", "-c"]
     command:
-      - |
-        envsubst < /etc/alertmanager/config.yml.tmpl > /tmp/alertmanager-config.yml && \
-        /bin/alertmanager \
-          --config.file=/tmp/alertmanager-config.yml \
-          --storage.path=/alertmanager
+      - '--config.file=/etc/alertmanager/config.yml'
+      - '--storage.path=/alertmanager'
     environment:
       - SMTP_FROM=${SMTP_FROM}
       - SMTP_USERNAME=${SMTP_USERNAME}
