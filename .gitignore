@@ -1,4 +1,22 @@
-# Environment variables - never commit secrets
+# =============================================================================
+# grafana-monitoring-stack — .gitignore
+# =============================================================================
+
+# Private environment file — NEVER commit this
 .env
-.env.*
-!.env.example
+
+# Rendered alertmanager config (generated at runtime from config.yml.tmpl)
+alertmanager/config.yml
+
+# Docker volume data directories (if accidentally created locally)
+prometheus_data/
+grafana_data/
+alertmanager_data/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/

@@ -1,0 +1,176 @@
+# =============================================================================
+# Alertmanager Configuration Template — Production
+# =============================================================================
+# This is a .tmpl file. Environment variables are substituted at container
+# startup via envsubst. See docker-compose.yml alertmanager entrypoint.
+#
+# Required environment variables:
+#   SMTP_FROM                 - Sender address (e.g. alerts@example.com)
+#   SMTP_USERNAME             - Gmail account (e.g. alerts@example.com)
+#   SMTP_PASSWORD             - Gmail App Password (NOT your account password)
+#   ALERT_EMAIL_TO            - Default recipient (e.g. team@example.com)
+#   ALERT_EMAIL_TO_CRITICAL   - Critical recipient (e.g. oncall@example.com)
+#   GF_SERVER_DOMAIN          - Your domain (e.g. grafana.example.com)
+# =============================================================================
+
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: '${SMTP_FROM}'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+  # Must match your sending domain — Gmail rejects EHLO from 'localhost'
+  smtp_hello: '${GF_SERVER_DOMAIN}'
+
+# =============================================================================
+# Routing tree
+# =============================================================================
+route:
+  group_by: ['alertname', 'instance', 'job', 'team']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'default'
+
+  routes:
+    # Critical alerts — fast repeat, does not fall through to default
+    - matchers:
+        - severity = critical
+      receiver: 'critical'
+      repeat_interval: 30m
+      continue: false
+
+    # Warning alerts — standard cadence
+    - matchers:
+        - severity = warning
+      receiver: 'default'
+      repeat_interval: 4h
+      continue: false
+
+    # Catch-all — any unmatched severity (e.g. future 'info') still delivered
+    - receiver: 'default'
+
+# =============================================================================
+# Receivers
+# =============================================================================
+receivers:
+
+  # ---------------------------------------------------------------------------
+  # Default — warning and unmatched alerts
+  # ---------------------------------------------------------------------------
+  - name: 'default'
+    email_configs:
+      - to: '${ALERT_EMAIL_TO}'
+        send_resolved: true
+        from: '${SMTP_FROM}'
+        headers:
+          Subject: >-
+            [{{ .Status | toUpper }}{{ if eq .Status "firing" }} | {{ .CommonLabels.severity | toUpper }}{{ end }}]
+            {{ .CommonLabels.alertname }}
+            ({{ .Alerts | len }} alert{{ if gt (len .Alerts) 1 }}s{{ end }})
+        html: |
+          <!DOCTYPE html>
+          <html>
+          <body style="font-family: Arial, sans-serif; font-size: 14px; color: #333; max-width: 700px; margin: 0 auto;">
+
+            <div style="background: {{ if eq .Status "resolved" }}#2e7d32{{ else }}#e65100{{ end }}; padding: 16px 20px; border-radius: 4px 4px 0 0;">
+              <h2 style="color: #fff; margin: 0;">
+                {{ if eq .Status "resolved" }}✅ RESOLVED{{ else }}⚠️ ALERT FIRING{{ end }}
+              </h2>
+            </div>
+
+            <div style="border: 1px solid #ddd; border-top: none; padding: 16px 20px; border-radius: 0 0 4px 4px;">
+              <p><b>Environment:</b> {{ .CommonLabels.environment | default "unknown" }}</p>
+              <p><b>Cluster:</b> {{ .CommonLabels.cluster | default "unknown" }}</p>
+              <p><b>Alert count:</b> {{ .Alerts | len }}</p>
+
+              {{ range .Alerts }}
+              <hr style="border: 1px solid #eee; margin: 16px 0;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 5px 8px; width: 130px; color: #666;"><b>Alert</b></td><td style="padding: 5px 8px;">{{ .Annotations.summary }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Description</b></td><td style="padding: 5px 8px;">{{ .Annotations.description }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Severity</b></td><td style="padding: 5px 8px;">{{ .Labels.severity }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Instance</b></td><td style="padding: 5px 8px;">{{ .Labels.instance }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Job</b></td><td style="padding: 5px 8px;">{{ .Labels.job }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Started</b></td><td style="padding: 5px 8px;">{{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</td></tr>
+                {{ if not .EndsAt.IsZero }}<tr><td style="padding: 5px 8px; color: #666;"><b>Resolved</b></td><td style="padding: 5px 8px;">{{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}</td></tr>{{ end }}
+                {{ if .Annotations.runbook_url }}<tr><td style="padding: 5px 8px; color: #666;"><b>Runbook</b></td><td style="padding: 5px 8px;"><a href="{{ .Annotations.runbook_url }}">{{ .Annotations.runbook_url }}</a></td></tr>{{ end }}
+              </table>
+              {{ end }}
+
+              <hr style="border: 1px solid #eee; margin: 16px 0;">
+              <p style="font-size: 11px; color: #aaa; margin: 0;">Sent by Alertmanager · grafana-monitoring-stack</p>
+            </div>
+
+          </body>
+          </html>
+
+  # ---------------------------------------------------------------------------
+  # Critical — highest severity, fast cadence
+  # ---------------------------------------------------------------------------
+  - name: 'critical'
+    email_configs:
+      - to: '${ALERT_EMAIL_TO_CRITICAL}'
+        send_resolved: true
+        from: '${SMTP_FROM}'
+        headers:
+          Subject: >-
+            🔴 [CRITICAL] {{ .CommonLabels.alertname }}
+            on {{ .CommonLabels.instance }}
+            ({{ .Alerts | len }} alert{{ if gt (len .Alerts) 1 }}s{{ end }})
+        html: |
+          <!DOCTYPE html>
+          <html>
+          <body style="font-family: Arial, sans-serif; font-size: 14px; color: #333; max-width: 700px; margin: 0 auto;">
+
+            <div style="background: {{ if eq .Status "resolved" }}#2e7d32{{ else }}#b71c1c{{ end }}; padding: 16px 20px; border-radius: 4px 4px 0 0;">
+              <h2 style="color: #fff; margin: 0;">
+                {{ if eq .Status "resolved" }}✅ CRITICAL RESOLVED{{ else }}🔴 CRITICAL ALERT{{ end }}
+              </h2>
+            </div>
+
+            <div style="border: 1px solid #ddd; border-top: none; padding: 16px 20px; border-radius: 0 0 4px 4px;">
+              <p><b>Environment:</b> {{ .CommonLabels.environment | default "unknown" }}</p>
+              <p><b>Cluster:</b> {{ .CommonLabels.cluster | default "unknown" }}</p>
+              <p><b>Alert count:</b> {{ .Alerts | len }}</p>
+
+              {{ range .Alerts }}
+              <hr style="border: 2px solid #b71c1c; margin: 16px 0;">
+              <table style="width: 100%; border-collapse: collapse;">
+                <tr><td style="padding: 5px 8px; width: 130px; color: #666;"><b>Alert</b></td><td style="padding: 5px 8px; color: #b71c1c; font-weight: bold;">{{ .Annotations.summary }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Description</b></td><td style="padding: 5px 8px;">{{ .Annotations.description }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Instance</b></td><td style="padding: 5px 8px;">{{ .Labels.instance }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Job</b></td><td style="padding: 5px 8px;">{{ .Labels.job }}</td></tr>
+                <tr><td style="padding: 5px 8px; color: #666;"><b>Started</b></td><td style="padding: 5px 8px;">{{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</td></tr>
+                {{ if not .EndsAt.IsZero }}<tr><td style="padding: 5px 8px; color: #666;"><b>Resolved</b></td><td style="padding: 5px 8px;">{{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}</td></tr>{{ end }}
+                {{ if .Annotations.runbook_url }}<tr><td style="padding: 5px 8px; color: #666;"><b>Runbook</b></td><td style="padding: 5px 8px;"><a href="{{ .Annotations.runbook_url }}" style="color: #b71c1c;">{{ .Annotations.runbook_url }}</a></td></tr>{{ end }}
+              </table>
+              {{ end }}
+
+              <hr style="border: 1px solid #eee; margin: 16px 0;">
+              <p style="font-size: 11px; color: #aaa; margin: 0;">Sent by Alertmanager · grafana-monitoring-stack</p>
+            </div>
+
+          </body>
+          </html>
+
+# =============================================================================
+# Inhibition rules
+# =============================================================================
+inhibit_rules:
+
+  # Suppress warning if a critical is already firing for the same alert + instance
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal: ['alertname', 'instance']
+
+  # If ServiceDown fires, suppress all other alerts for that instance —
+  # a dead host will naturally trigger CPU/memory/disk/load alerts as noise
+  - source_matchers:
+      - alertname = ServiceDown
+    target_matchers:
+      - severity =~ "warning|critical"
+    equal: ['instance']
