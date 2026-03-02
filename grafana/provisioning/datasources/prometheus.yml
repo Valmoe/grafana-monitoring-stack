@@ -1,0 +1,33 @@
+# =============================================================================
+# Grafana Datasource Provisioning — Prometheus
+# =============================================================================
+# Automatically configures Prometheus as the default datasource on startup.
+# No manual setup needed in the Grafana UI.
+#
+# Docs: https://grafana.com/docs/grafana/latest/administration/provisioning/
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    # Uses Docker service name — works because both containers share the
+    # 'monitoring' network defined in docker-compose.yml
+    url: http://prometheus:9090
+    access: proxy
+    isDefault: true
+    editable: false    # Prevent accidental UI edits overwriting this config
+
+    jsonData:
+      # Match Prometheus scrape & evaluation intervals from prometheus.yml
+      timeInterval: '15s'
+      # Enable Prometheus query builder features in Grafana
+      httpMethod: POST
+      # Show query hints and metric metadata in the explore view
+      exemplarTraceIdDestinations: []
+
+    # Provisioned datasources cannot be deleted from the UI
+    # Set to true only if you want to allow UI deletion
+    deletable: false
