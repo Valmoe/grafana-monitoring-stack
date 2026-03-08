@@ -1,25 +1,54 @@
+# =============================================================================
+# Prometheus Configuration — Production
+# =============================================================================
+
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
+  scrape_timeout: 10s
+
+  external_labels:
+    environment: 'production'
+    cluster: 'grafana-monitoring-stack'
 
 alerting:
   alertmanagers:
     - static_configs:
         - targets:
             - alertmanager:9093
+      timeout: 10s
+      path_prefix: /
 
 rule_files:
   - "rules/*.yml"
 
 scrape_configs:
+
   - job_name: 'prometheus'
     static_configs:
-      - targets: ['localhost:9090']
+      - targets: ['prometheus:9090']
+        labels:
+          service: 'prometheus'
 
   - job_name: 'node-exporter'
     static_configs:
-      - targets: ['localhost:9100']
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'node-exporter'
+    metric_relabel_configs:
+      - source_labels: [fstype]
+        regex: 'tmpfs|devtmpfs'
+        action: drop
 
   - job_name: 'grafana'
     static_configs:
       - targets: ['grafana:3000']
+        labels:
+          service: 'grafana'
+    metrics_path: '/metrics'
+
+  - job_name: 'alertmanager'
+    static_configs:
+      - targets: ['alertmanager:9093']
+        labels:
+          service: 'alertmanager'
